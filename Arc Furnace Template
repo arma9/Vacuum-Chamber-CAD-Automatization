@@ -7,8 +7,11 @@ import math
 #TODO:
 
 # CHAMBER PARAMETERS:
-radial_flange_specs = [["kf25",3],["kf40",2]]
+    
+
+radial_flange_specs = ["kf25",3,],["kf40",2]
 axial_flange_specs = ["kf40","kf25"]
+
 
 r_outer = 70
 r_inner = 50
