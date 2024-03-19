@@ -1,0 +1,200 @@
+import cadquery as cq
+import math
+#result = cq.Workplane("XY" ).box(3, 3, 0.5).edges("|Z").fillet(0.125)
+
+#ARC FURNACE CAD AUTOMATIZATION
+
+#TODO:
+
+# CHAMBER PARAMETERS:
+radial_flange_specs = [["kf16",3],["kf25",2]]
+axial_flange_specs = ["kf50","kf40"]
+
+r_outer = 150
+r_inner = 100
+chamber_height = 300
+model_height = 350
+base_thickness = 10
+bolt_dimensions = [5,30]
+n_of_bolts = 20
+
+
+#STOCK PARAMETERS:
+bulkhead_thickness = 12.7
+
+kf_bulkhead_bolt_ring_radii = {
+
+    "kf16":19.5,
+    "kf25":24,
+    "kf40":31,
+    "kf50":41.275,
+}
+
+kf_bulkhead_sizes = {
+    
+    "kf16":25.40,
+    "kf25":30.15,
+    "kf40":37.30,
+    "kf50":47.40,
+}
+
+
+#WORK CONSTANTS:
+standard_port_diameters_kjl = {
+    "kf10":12,
+    "kf16":17,
+    "kf25":26,
+    "kf40":41,
+    "kf50":51
+}
+
+
+
+#CODE: 
+
+
+def get_standard_bolt_sizes(flange_name):
+
+    bolt_diameter = None
+    bolt_length = bulkhead_thickness + 10
+
+    if flange_name[0:2].lower() == "kf":
+
+        if flange_name[2:] in ["10","16","25"]:
+            bolt_diameter = 4
+        if flange_name[2:] in ["40","50"]:
+            bolt_diameter = 5
+    
+    return [bolt_diameter,bolt_length]
+        
+
+def get_standard_port_diameter(name):
+    
+    if name in ["kf10","kf16", "kf25", "kf40", "kf50", "KF10","KF16", "KF25", "KF40", "KF50"]:
+
+        flange_name = name[0:2].lower() + name[2:]
+        port_diameter = standard_port_diameters_kjl[flange_name]
+
+        return [flange_name,port_diameter]
+    
+            
+        
+
+def flanges_setup(flange_array, r_outer, r_inner):
+
+    
+    #Making calculations necessary to determine optimal placement of ports
+    total_flanges = 0
+    total_flange_size = 0
+    
+    port_design_params = []
+
+    for pair in flange_array:
+        
+        processed_pair = [get_standard_port_diameter(pair[0])[1],pair[1]]
+        total_flange_size += processed_pair[0] * processed_pair[1]
+        total_flanges += processed_pair[1]
+        processed_pair.append(get_standard_bolt_sizes(pair[0]))
+        processed_pair.append(kf_bulkhead_bolt_ring_radii[pair[0]])
+        processed_pair.append(kf_bulkhead_sizes[pair[0]])
+
+        port_design_params.append(processed_pair)
+    
+    #Calculating optimal angular separation of ports and their cartesian coordinates
+    
+    pointer = 0
+    flange_list = []
+    
+    for item in port_design_params:
+        for i in range(item[1]):
+            
+            difference = (item[0]/total_flange_size)*360
+            pointer += difference
+            
+            flange_list.append([item[0],pointer-difference/2,item[2],item[3]]) #flange type, flange angle, bolt dimensions
+    
+    negatives = []
+    
+    for flange in flange_list:
+        
+        bolt_diameter = flange[2][0]
+        bolt_length = flange[2][1]
+        bolt_ring_radius = flange[3]
+
+        #Solve math
+        flange_port_rect = cq.Workplane("XZ").rect((flange[0]*4),(flange[0]*4)).extrude(-700)
+        w_hole = flange_port_rect.faces("<Y").workplane().circle((flange[0])).extrude(r_outer-r_inner)
+        w_threads = w_hole.faces("<Y").polarArray(bolt_ring_radius*2,0,360,6).circle(bolt_diameter/2).extrude(bolt_length)
+        
+        offset = r_outer*math.cos((math.acos(1-(((flange[0]*4)**2)/(2*(r_outer**2)))))/2)
+        
+        w_threads = w_threads.rotate((0,0,0),(0,0,1),180).translate((0,-offset,0)).rotate((0,0,0),(0,0,1),flange[1])
+        
+        negatives.append(w_threads)
+    
+    #for negative in negatives:
+        #show_object(negative)
+    
+    return negatives
+
+def create_chamber_body(r_outer, r_inner, height, model_height, bolt_dimensions,n_of_bolts, radial_flange_specs):
+
+    
+    bolt_diameter = bolt_dimensions[0]
+    bolt_length = bolt_dimensions[1]
+
+    #Reference sketches
+    outer_circle = cq.Workplane("XY").circle(r_outer)
+    inner_circle = cq.Workplane("XY").circle(r_inner)
+    concentric_circles = cq.Workplane("XY").circle(r_outer).circle(r_inner)
+    
+    #Creates physical body cylinder
+    cylinder = concentric_circles.extrude(height)
+    
+    flange_negatives = flanges_setup(radial_flange_specs, r_outer, r_inner)
+    
+    for negative in flange_negatives:
+        #show_object(negative)
+        cylinder = cylinder.cut(negative.translate((0,0,height/2)))
+
+    baselid_thickness = (model_height-height)/2
+    
+    base = outer_circle.extrude(-baselid_thickness)
+    lid = cq.Workplane("XY").workplane(offset=height).circle(r_outer).extrude(baselid_thickness)
+    
+    if axial_flange_specs:
+        if len(axial_flange_specs) == 2:
+
+            base_port = get_standard_port_diameter(axial_flange_specs[1])
+            lid_port = get_standard_port_diameter(axial_flange_specs[0])
+
+            base_negative = cq.Workplane("XY").circle(base_port[1]).extrude(-baselid_thickness)
+            lid_negative = cq.Workplane("XY").workplane(offset=height).circle(lid_port[1]).extrude(baselid_thickness)
+
+            base = base.cut(base_negative)
+            lid = lid.cut(lid_negative)
+        
+        elif len(axial_flange_specs) == 1:
+            
+            lid_port = get_standard_port_diameter(axial_flange_specs[0])
+            lid_negative = cq.Workplane("XY").workplane(offset=height).circle(lid_port[1]).extrude(baselid_thickness)
+            lid = lid.cut(lid_negative)
+
+
+    show_object(cylinder)
+    show_object(base)
+    show_object(lid)
+
+
+create_chamber_body(r_outer,r_inner,chamber_height,model_height,bolt_dimensions,n_of_bolts,radial_flange_specs)
+
+
+
+
+
+
+
+
+
+
+
