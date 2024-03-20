@@ -9,8 +9,8 @@ import math
 # CHAMBER PARAMETERS:
     
 
-radial_flange_specs = ["kf25",3,],["kf40",2]
-axial_flange_specs = ["kf40","kf25"]
+radial_flange_specs = [[["kf25","bulkhead"],3],[["kf40","bulkhead"],2]]
+axial_flange_specs = [["kf40","bulkhead"],["kf25","bulkhead"]]
 
 
 r_outer = 70
@@ -42,7 +42,7 @@ kf_bulkhead_sizes = {
 
 
 #WORK CONSTANTS:
-standard_port_diameters_kjl = {
+kf_bulkhead_port_diameters= {
     "kf10":12,
     "kf16":17,
     "kf25":26,
@@ -70,27 +70,15 @@ def get_standard_bolt_sizes(flange_name):
             bolt_diameter = 5
     
     return [bolt_diameter,bolt_length]
-        
-
-def get_standard_port_diameter(name):
-    
-    if name in ["kf10","kf16", "kf25", "kf40", "kf50", "KF10","KF16", "KF25", "KF40", "KF50"]:
-
-        flange_name = name[0:2].lower() + name[2:]
-        port_diameter = standard_port_diameters_kjl[flange_name]
-
-        return [flange_name,port_diameter]
-    
             
         
 def kf_port_flat_subtraction(name,workplane,surface_thickness):
     
-    
-    port = get_standard_port_diameter(name)
+    port = kf_bulkhead_port_diameters[name]
     bolt_ring = kf_bulkhead_bolt_ring_radii[name]
     bolt_diameter, bolt_length = get_standard_bolt_sizes(name)
     
-    hole_negative = workplane.circle(port[1]/2).extrude(surface_thickness)
+    hole_negative = workplane.circle(port/2).extrude(surface_thickness)
     
     if surface_thickness >= 0:
         
@@ -113,17 +101,21 @@ def radial_flanges_setup(flange_array, r_outer, r_inner):
     
     port_design_params = []
 
-    for pair in flange_array:
+    for entry in flange_array:
         
-        processed_pair = [get_standard_port_diameter(pair[0])[1],pair[1]]
-        processed_pair.append(get_standard_bolt_sizes(pair[0]))
-        processed_pair.append(kf_bulkhead_bolt_ring_radii[pair[0]])
-        processed_pair.append(kf_bulkhead_sizes[pair[0]])
-        
-        total_port_size += processed_pair[4] * processed_pair[1]
-        total_flanges += processed_pair[1]
+        if entry[0][1] == "bulkhead":
+            port_param = []
 
-        port_design_params.append(processed_pair)
+            port_param.append(kf_bulkhead_port_diameters[entry[0][0]])
+            port_param.append(entry[1])
+            port_param.append(get_standard_bolt_sizes(entry[0][0]))
+            port_param.append(kf_bulkhead_bolt_ring_radii[entry[0][0]])
+            port_param.append(kf_bulkhead_sizes[entry[0][0]])
+
+            total_port_size += port_param[4] * port_param[1]
+            total_flanges += port_param[1]
+
+            port_design_params.append(port_param)
     
     #Calculating optimal angular separation of ports and their cartesian coordinates
     
@@ -191,23 +183,20 @@ def create_chamber_body(r_outer, r_inner, height, model_height, bolt_dimensions,
     if axial_flange_specs:
         if len(axial_flange_specs) == 2:
             
+            lid = lid.cut(kf_port_flat_subtraction(axial_flange_specs[0][0],cq.Workplane("XY").workplane(offset=(height+baselid_thickness)), -baselid_thickness)[0])
+            lid = lid.cut(kf_port_flat_subtraction(axial_flange_specs[0][0],cq.Workplane("XY").workplane(offset=(height+baselid_thickness)), -baselid_thickness)[1])
             
-            
-            lid = lid.cut(kf_port_flat_subtraction(axial_flange_specs[0],cq.Workplane("XY").workplane(offset=(height+baselid_thickness)), -baselid_thickness)[0])
-            lid = lid.cut(kf_port_flat_subtraction(axial_flange_specs[0],cq.Workplane("XY").workplane(offset=(height+baselid_thickness)), -baselid_thickness)[1])
-            
-            base = base.cut(kf_port_flat_subtraction(axial_flange_specs[0],cq.Workplane("XY").workplane(offset=(-baselid_thickness)), baselid_thickness)[0])
-            base = base.cut(kf_port_flat_subtraction(axial_flange_specs[0],cq.Workplane("XY").workplane(offset=(-baselid_thickness)), baselid_thickness)[1])
+            base = base.cut(kf_port_flat_subtraction(axial_flange_specs[1][0],cq.Workplane("XY").workplane(offset=(-baselid_thickness)), baselid_thickness)[0])
+            base = base.cut(kf_port_flat_subtraction(axial_flange_specs[1][0],cq.Workplane("XY").workplane(offset=(-baselid_thickness)), baselid_thickness)[1])
             
             
             
         elif len(axial_flange_specs) == 1:
-            
-            lid_port = get_standard_port_diameter(axial_flange_specs[0])
-            lid_hole_negative = cq.Workplane("XY").workplane(offset=height).circle(lid_port[1]/2).extrude(baselid_thickness)
-            lid_bolts_negative = cq.Workplane("XY").workplane(offset=height).polarArray(bolt_ring_radius,0,360,6).circle(bolt_diameter/2).extrude(bolt_length)
-            lid = lid.cut(lid_negative)
 
+            lid = lid.cut(kf_port_flat_subtraction(axial_flange_specs[0][0],cq.Workplane("XY").workplane(offset=(height+baselid_thickness)), -baselid_thickness)[0])
+            lid = lid.cut(kf_port_flat_subtraction(axial_flange_specs[0][0],cq.Workplane("XY").workplane(offset=(height+baselid_thickness)), -baselid_thickness)[1])
+            
+    
 
     show_object(cylinder)
     show_object(base)
