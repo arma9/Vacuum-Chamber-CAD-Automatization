@@ -9,19 +9,19 @@ import math
 # CHAMBER PARAMETERS:
     
 
-radial_flange_specs = [[["kf25","bulkhead"],3],[["kf40","bulkhead"],2]]
-axial_flange_specs = [["kf40","bulkhead"],["kf25","bulkhead"]]
+radial_flange_specs = [[["kf40","bulkhead"],3],[["kf40","wingnut"],1],[["kf25","bulkhead"],1],[["kf50","wingnut"],1]]
+axial_flange_specs = [["kf50","wingnut"],["kf25","bulkhead"]]
 
 
-r_outer = 70
-r_inner = 50
+r_outer = 100
+r_inner = 70
 chamber_height = 100
 model_height = 150
 base_thickness = 10
 bolt_dimensions = [5,30]
 n_of_bolts = 20
 
-#STOCK PARAMETERS:
+#CUSTOM STOCK PARAMETERS:
 bulkhead_thickness = 12.7
 
 kf_bulkhead_bolt_ring_radii = {
@@ -41,7 +41,7 @@ kf_bulkhead_sizes = {
 }
 
 
-#WORK CONSTANTS:
+#WORK CONSTANTS (SOURCED FROM KURT J LESKER):
 kf_bulkhead_port_diameters= {
     "kf10":12,
     "kf16":17,
@@ -50,12 +50,95 @@ kf_bulkhead_port_diameters= {
     "kf50":51
 }
 
+wingnut_clamp_tube_ors = {
+    "kf10":5,
+    "kf16":8,
+    "kf25":13,
+    "kf40":20,
+    "kf50":24,
+}
+
+wingnut_clamp_tube_irs = {
+    "kf10":4,
+    "kf16":6,
+    "kf25":11,
+    "kf40":18,
+    "kf50":22,
+}
+
+wingnut_clamp_rim_ods = {
+    "kf10":30,
+    "kf16":30,
+    "kf25":40,
+    "kf40":55,
+    "kf50":75,
+}
+
+wingnut_clamp_rim_ids = {
+    "kf10":12,
+    "kf16":17,
+    "kf25":26,
+    "kf40":41,
+    "kf50":52,
+}
+
+wingnut_clamp_tube_lengths = {
+    "kf10":15,
+    "kf16":15,
+    "kf25":20,
+    "kf40":20,
+    "kf50":25,
+}
+
 #DERIVED CONSTANTS:
     
 baselid_thickness = (chamber_height-model_height)/2
 
 #CODE: 
 
+def model_kf_wingnut_port(name,chamber_ir):
+    
+    #COMMON PARAMETERS (ALL FLANGES)
+    rim_thickness = 3
+    angle = 15
+    angle = math.radians(angle)
+    groove_thickness = 2.5
+    
+    a = wingnut_clamp_tube_ors[name]
+    b = wingnut_clamp_tube_irs[name]
+    l = wingnut_clamp_tube_lengths[name]
+    rim_od = wingnut_clamp_rim_ods[name]
+    rim_id = wingnut_clamp_rim_ids[name]
+    
+    wing_sketch = (
+        cq.Workplane("XZ")
+        .moveTo(a, 0)  
+        .lineTo(a, l)  
+        .lineTo(rim_od/2, l+((rim_od/2)-a)*math.tan(angle))
+        .lineTo(rim_od/2, l+((rim_od/2)-a)*math.tan(angle) + rim_thickness)
+        .lineTo(rim_id/2, l+((rim_od/2)-a)*math.tan(angle) + rim_thickness)
+        .lineTo(rim_id/2, l+((rim_od/2)-a)*math.tan(angle) + rim_thickness- groove_thickness)
+        .lineTo(b, l+((rim_od/2)-a)*math.tan(angle) + rim_thickness- groove_thickness)
+        .lineTo(b, 0)
+        .lineTo(a,0)
+        .close()
+    )
+    
+    wingnut_port = wing_sketch.revolve(angleDegrees=360, axisStart=(0, 0, 0), axisEnd=(0, 1, 0))
+
+    if chamber_ir != 0:
+        a_sketch = cq.Workplane("XY").circle(a)
+        b_sketch = cq.Workplane("XY").circle(b)
+
+        to_subtract = b_sketch.extrude(-chamber_ir)
+        appendage_ring = a_sketch.extrude(-chamber_ir).cut(to_subtract)
+
+        return[wingnut_port,appendage_ring,to_subtract]
+    
+    else:
+
+        solid_wingnut_port = wingnut_port.val()
+        return solid_wingnut_port
 
 def get_standard_bolt_sizes(flange_name):
 
@@ -90,9 +173,8 @@ def kf_port_flat_subtraction(name,workplane,surface_thickness):
     
     return [hole_negative,bolts_negative]
     
-
-
-def radial_flanges_setup(flange_array, r_outer, r_inner):
+    
+def radial_flanges_setup(flange_array, r_outer, r_inner,height):
 
     
     #Making calculations necessary to determine optimal placement of ports
@@ -101,9 +183,27 @@ def radial_flanges_setup(flange_array, r_outer, r_inner):
     
     port_design_params = []
 
+    
+    
     for entry in flange_array:
         
-        if entry[0][1] == "bulkhead":
+        if entry[0][1] == "wingnut":
+            port_param = []
+            
+            port_param.append(wingnut_clamp_tube_irs[entry[0][0]])
+            port_param.append(entry[1])
+            port_param.append(wingnut_clamp_tube_ors[entry[0][0]])
+            port_param.append(wingnut_clamp_tube_lengths[entry[0][0]])
+            port_param.append(wingnut_clamp_tube_ors[entry[0][0]])
+            port_param.append(entry[0][1])
+            port_param.append(entry[0][0])
+
+            total_port_size += port_param[4] * port_param[1]
+            total_flanges += port_param[1]
+
+            port_design_params.append(port_param)
+        
+        elif entry[0][1] == "bulkhead":
             port_param = []
 
             port_param.append(kf_bulkhead_port_diameters[entry[0][0]])
@@ -111,6 +211,9 @@ def radial_flanges_setup(flange_array, r_outer, r_inner):
             port_param.append(get_standard_bolt_sizes(entry[0][0]))
             port_param.append(kf_bulkhead_bolt_ring_radii[entry[0][0]])
             port_param.append(kf_bulkhead_sizes[entry[0][0]])
+            port_param.append(entry[0][1])
+            port_param.append(entry[0][0])
+            
 
             total_port_size += port_param[4] * port_param[1]
             total_flanges += port_param[1]
@@ -128,32 +231,53 @@ def radial_flanges_setup(flange_array, r_outer, r_inner):
             difference = (item[4]/total_port_size)*360
             pointer += difference
             
-            flange_list.append([item[0],pointer-difference/2,item[2],item[3],item[4]]) #flange type, flange angle, bolt dimensions
-    
-    negatives = []
+            flange_list.append([item[0],pointer-difference/2,item[2],item[3],item[4],item[5],item[6]])
+
+    setup = []
     
     for flange in flange_list:
         
-        bolt_diameter = flange[2][0]
-        bolt_length = flange[2][1]
-        bolt_ring_radius = flange[3]
-        bulkhead_sidelength = flange[4]*2
+        if flange[5] == "bulkhead":
 
-        #Solve math
-        flange_port_rect = cq.Workplane("XZ").rect((bulkhead_sidelength),(bulkhead_sidelength)).extrude(-700)
-        w_hole = flange_port_rect.faces("<Y").workplane().circle((flange[0])/2).extrude(r_outer-r_inner)
-        w_threads = w_hole.faces("<Y").polarArray(bolt_ring_radius,0,360,6).circle(bolt_diameter/2).extrude(bolt_length)
-        
-        offset = r_outer*math.cos((math.acos(1-(((bulkhead_sidelength)**2)/(2*(r_outer**2)))))/2)
-        
-        w_threads = w_threads.rotate((0,0,0),(0,0,1),180).translate((0,-offset,0)).rotate((0,0,0),(0,0,1),flange[1])
-        
-        negatives.append(w_threads)
+            bolt_diameter = flange[2][0]
+            bolt_length = flange[2][1]
+            bolt_ring_radius = flange[3]
+            bulkhead_sidelength = flange[4]*2
     
+            #Solve math
+            flange_port_rect = cq.Workplane("XZ").rect((bulkhead_sidelength),(bulkhead_sidelength)).extrude(-700)
+            w_hole = flange_port_rect.faces("<Y").workplane().circle((flange[0])/2).extrude(r_outer-r_inner)
+            w_threads = w_hole.faces("<Y").polarArray(bolt_ring_radius,0,360,6).circle(bolt_diameter/2).extrude(bolt_length)
+            
+            offset = r_outer*math.cos((math.acos(1-(((bulkhead_sidelength)**2)/(2*(r_outer**2)))))/2)
+            
+            w_threads = w_threads.rotate((0,0,0),(0,0,1),180).translate((0,-offset,0)).rotate((0,0,0),(0,0,1),flange[1])
+            
+            setup.append([w_threads,"bulkhead"])
+        
+        elif flange[5] == "wingnut":
+            
+            body_to_cut = cq.Workplane("XY").workplane(offset=-height/2).circle(r_outer).extrude(height*2)
+            #show_object(body_to_cut)
+            
+            tube_model = model_kf_wingnut_port(flange[6],r_outer)
+
+            rotated_tube = tube_model[0].rotate((0,0,0),(0,1,0),-90).rotate((0,0,0),(0,0,1),90).translate((0,-r_outer,0)).rotate((0,0,0),(0,0,1),flange[1])
+            rotated_appendage = tube_model[1].rotate((0,0,0),(0,1,0),-90).rotate((0,0,0),(0,0,1),90).translate((0,-r_outer,0)).rotate((0,0,0),(0,0,1),flange[1])
+            rotated_negative = tube_model[2].rotate((0,0,0),(0,1,0),-90).rotate((0,0,0),(0,0,1),90).translate((0,-r_outer,0)).rotate((0,0,0),(0,0,1),flange[1])
+            
+            
+            
+            rotated_appendage = rotated_appendage.cut(body_to_cut)
+            rotated_tube = rotated_tube.cut(body_to_cut)
+            
+
+            setup.append([[rotated_tube,rotated_appendage,rotated_negative],"wingnut"])
+        
     #for negative in negatives:
         #show_object(negative)
     
-    return negatives
+    return setup
 
 def create_chamber_body(r_outer, r_inner, height, model_height, bolt_dimensions,n_of_bolts, radial_flange_specs):
 
@@ -169,11 +293,19 @@ def create_chamber_body(r_outer, r_inner, height, model_height, bolt_dimensions,
     #Creates physical body cylinder
     cylinder = concentric_circles.extrude(height)
     
-    flange_negatives = radial_flanges_setup(radial_flange_specs, r_outer, r_inner)
+    radial_flanges = radial_flanges_setup(radial_flange_specs, r_outer, r_inner,height)
     
-    for negative in flange_negatives:
+    for flange in radial_flanges:
         #show_object(negative)
-        cylinder = cylinder.cut(negative.translate((0,0,height/2)))
+        if flange[1] == "bulkhead":
+            cylinder = cylinder.cut(flange[0].translate((0,0,height/2)))
+
+        elif flange[1] == "wingnut":
+            
+
+            show_object(flange[0][0].translate((0,0,height/2)))
+            show_object(flange[0][1].translate((0,0,height/2)))
+            cylinder = cylinder.cut(flange[0][2].translate((0,0,height/2)))
 
     baselid_thickness = (model_height-height)/2
     
@@ -181,22 +313,43 @@ def create_chamber_body(r_outer, r_inner, height, model_height, bolt_dimensions,
     lid = cq.Workplane("XY").workplane(offset=height).circle(r_outer).extrude(baselid_thickness)
     
     if axial_flange_specs:
-        if len(axial_flange_specs) == 2:
-            
-            lid = lid.cut(kf_port_flat_subtraction(axial_flange_specs[0][0],cq.Workplane("XY").workplane(offset=(height+baselid_thickness)), -baselid_thickness)[0])
-            lid = lid.cut(kf_port_flat_subtraction(axial_flange_specs[0][0],cq.Workplane("XY").workplane(offset=(height+baselid_thickness)), -baselid_thickness)[1])
-            
-            base = base.cut(kf_port_flat_subtraction(axial_flange_specs[1][0],cq.Workplane("XY").workplane(offset=(-baselid_thickness)), baselid_thickness)[0])
-            base = base.cut(kf_port_flat_subtraction(axial_flange_specs[1][0],cq.Workplane("XY").workplane(offset=(-baselid_thickness)), baselid_thickness)[1])
-            
-            
-            
-        elif len(axial_flange_specs) == 1:
+        
+        top_axial_flange, bottom_axial_flange = [["",""],["",""]]
 
-            lid = lid.cut(kf_port_flat_subtraction(axial_flange_specs[0][0],cq.Workplane("XY").workplane(offset=(height+baselid_thickness)), -baselid_thickness)[0])
-            lid = lid.cut(kf_port_flat_subtraction(axial_flange_specs[0][0],cq.Workplane("XY").workplane(offset=(height+baselid_thickness)), -baselid_thickness)[1])
+        if len(axial_flange_specs) == 2:
+            top_axial_flange, bottom_axial_flange = axial_flange_specs
+        elif len(axial_flange_specs) == 1:
+            top_axial_flange = axial_flange_specs
+
+        if top_axial_flange[1] == "bulkhead":
+          
+            lid = lid.cut(kf_port_flat_subtraction(top_axial_flange[0],cq.Workplane("XY").workplane(offset=(height+baselid_thickness)), -baselid_thickness)[0])
+            lid = lid.cut(kf_port_flat_subtraction(top_axial_flange[0],cq.Workplane("XY").workplane(offset=(height+baselid_thickness)), -baselid_thickness)[1])
+        
+        elif top_axial_flange[1] == "wingnut":
             
-    
+            lid_flange = model_kf_wingnut_port(top_axial_flange[0],baselid_thickness)
+            lid_flange_0 = lid_flange[0].translate((0,0,height+baselid_thickness))
+            lid_flange_1 = lid_flange[2].val().translate((0,0,height+baselid_thickness))
+            lid = lid.cut(lid_flange_1)
+            lid = lid.union(lid_flange_0)
+        
+
+        if bottom_axial_flange[1] == "bulkhead":
+
+            base = base.cut(kf_port_flat_subtraction(bottom_axial_flange[0],cq.Workplane("XY").workplane(offset=(-baselid_thickness)), baselid_thickness)[0])
+            base = base.cut(kf_port_flat_subtraction(bottom_axial_flange[0],cq.Workplane("XY").workplane(offset=(-baselid_thickness)), baselid_thickness)[1])
+        
+        elif bottom_axial_flange[1] == "wingnut":
+
+            base_flange = model_kf_wingnut_port(bottom_axial_flange[0],baselid_thickness)
+            base_flange_0 = base_flange[0].rotate((0,0,0),(0,1,0),180)
+            base_flange_0 = base_flange_0.translate((0,0,-baselid_thickness))
+            base_flange_1 = base_flange[2].val().rotate((0,0,0),(0,1,0),180)
+            base_flange_1 = base_flange_1.translate((0,0,-baselid_thickness))
+            base = base.cut(base_flange_1)
+            base = base.union(base_flange_0)
+            
 
     show_object(cylinder)
     show_object(base)
